@@ -1,0 +1,7 @@
+services:
+  pixelpokemon:
+    build: .
+    # Host-poort 3011 (3010 is bezet door de andere versie) -> container-poort 80
+    ports:
+      - "3011:80"
+    restart: unless-stopped

@@ -1,0 +1,15 @@
+.git
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md
+*.md
+prompt*.txt
+PROMPT*.txt
+# dev-only artefacten (niet nodig in het image)
+.claude
+_devserver.py
+_shots
+_shot_*
+_probe.txt
+.gitignore

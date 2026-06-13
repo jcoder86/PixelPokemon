@@ -1,0 +1,8 @@
+# Lokale dev-/test-artefacten, niet meeleveren
+.claude/
+_devserver.py
+_shots/
+_shot_*
+_probe.txt
+.DS_Store
+Thumbs.db
