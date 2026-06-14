@@ -113,7 +113,10 @@ const SFX = {
   gust(){ noise(0.25,0.08,1800); },
   sting(){ blip(1200,0.06,'square',0.07); blip(1400,0.06,'square',0.06); },
   rock(){ noise(0.12,0.10,500); blip(120,0.14,'square',0.07,70); },
-  tackle(){ blip(300,0.08,'square',0.08,200); noise(0.06,0.05,1000); }
+  tackle(){ blip(300,0.08,'square',0.08,200); noise(0.06,0.05,1000); },
+  // showcase Pikachu
+  thunderZap(){ noise(0.22,0.14,4000); blip(1300,0.18,'square',0.11,300); noise(0.12,0.08,1500); },
+  cheer(){ [784,988,1175,1568].forEach((f,i)=>setTimeout(()=>blip(f,0.12,'triangle',0.09),i*70)); }
 };
 
 /* ============================================================
@@ -370,6 +373,280 @@ villageWater.forEach((t,i)=>{ defCreature('village','water',t,i===0?'strong':'no
 
 function poolFor(area, terrain){
   return CREATURES.filter(c=> c.area===area && c.terrain===terrain && c.id!==PIKACHU.id);
+}
+
+/* ============================================================
+   SHOWCASE CREATURE — Pikachu (the starter)
+   High-detail 48x48 sprite + full frame-based animation system.
+   Frames are pre-rendered ONCE and reused via frame swaps, so it
+   stays smooth on an iPad. Only this creature is affected; every
+   other creature keeps its existing sprite. This is the quality
+   benchmark for the rest.
+   ============================================================ */
+const PK = 48;                          // generous pixel grid for real detail
+const PPAL = [null,
+  '#5a3e10', //1 outline (warm dark)
+  '#ffd83a', //2 yellow mid (main)
+  '#f0b41e', //3 yellow shadow
+  '#c8861a', //4 yellow core shadow
+  '#ffe96b', //5 yellow light
+  '#fff7c2', //6 yellow highlight
+  '#ff5a4a', //7 cheek
+  '#d63b2e', //8 cheek shadow
+  '#ff9081', //9 cheek highlight
+  '#2a2622', //10 black (ear tip / eye)
+  '#4d463e', //11 black highlight
+  '#ffffff', //12 white (shine / spark)
+  '#a4692a', //13 tail brown
+  '#754817', //14 tail brown shadow
+  '#7a3326', //15 nose / open-mouth interior
+  '#ff7d6c'  //16 tongue
+];
+function pkGrid(){ const g=[]; for(let y=0;y<PK;y++) g.push(new Array(PK).fill(0)); return g; }
+function pkSet(g,x,y,v){ x=Math.round(x); y=Math.round(y); if(x<0||y<0||x>=PK||y>=PK) return; g[y][x]=v; }
+function pkStamp(g,cx,cy,w,v){ const r=Math.floor(w/2); for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++) if(dx*dx+dy*dy<=r*r+1) pkSet(g,cx+dx,cy+dy,v); }
+function pkSeg(g,x0,y0,x1,y1,w,vIn,vEdge){
+  const steps=Math.ceil(Math.hypot(x1-x0,y1-y0)*2)||1;
+  for(let i=0;i<=steps;i++){ const t=i/steps, x=x0+(x1-x0)*t, y=y0+(y1-y0)*t;
+    pkStamp(g,x,y,w,vIn); if(vEdge){ pkStamp(g,x,y,w+1.4,vEdge); pkStamp(g,x,y,w,vIn); } }
+}
+function pkOutline(g){
+  const add=[];
+  for(let y=0;y<PK;y++) for(let x=0;x<PK;x++){
+    if(g[y][x]!==0) continue;
+    if((y>0&&g[y-1][x]&&g[y-1][x]!==1)||(y<PK-1&&g[y+1][x]&&g[y+1][x]!==1)||
+       (x>0&&g[y][x-1]&&g[y][x-1]!==1)||(x<PK-1&&g[y][x+1]&&g[y][x+1]!==1)) add.push(y*PK+x);
+  }
+  add.forEach(p=>{ g[(p/PK)|0][p%PK]=1; });
+}
+/* one Pikachu frame -> grid, from a pose descriptor */
+function pikaFrameGrid(p){
+  const g=pkGrid();
+  const cx=24;
+  const sx=p.sx||1, sy=p.sy||1, by=p.by||0;
+  const groundY=41+by;                 // feet line (jumps lift it)
+  const rx=12.4*sx, ry=15.2*sy;
+  const cy=groundY-ry;                  // body anchored by its feet
+  const headTopY=cy-ry;
+  const faceY=cy-ry*0.16;
+  // ---- lightning-bolt tail (behind body, right side) ----
+  const tu=p.tailUp||0, sw=(p.tailSwing||0);
+  const T=[[28,groundY-6],[38+sw,groundY-9],[30+sw,groundY-15],
+           [43+sw,groundY-18-tu],[35+sw,groundY-23-tu],[47+sw,groundY-31-tu]];
+  for(let i=0;i<T.length-1;i++){ const w=3.6-i*0.42;
+    pkSeg(g,T[i][0],T[i][1],T[i+1][0],T[i+1][1],w,2,3); }
+  pkSeg(g,T[1][0],T[1][1],T[3][0],T[3][1],1.2,5);   // yellow highlight ridge
+  pkSeg(g,T[3][0],T[3][1],T[5][0],T[5][1],1.0,5);
+  pkStamp(g,28,groundY-6,5,14); pkStamp(g,29,groundY-7,4,13);  // brown base where it meets body
+  // ---- body with soft cell shading (top light, bottom shadow + highlight blob) ----
+  for(let y=0;y<PK;y++) for(let x=0;x<PK;x++){
+    const dxn=(x+0.5-cx)/rx, dyn=(y+0.5-cy)/ry, r2=dxn*dxn+dyn*dyn;
+    if(r2>1) continue;
+    let tone;
+    if(dyn<-0.30) tone=5; else if(dyn<0.30) tone=2; else if(dyn<0.66) tone=3; else tone=4;
+    const hx=(x+0.5-(cx-rx*0.30)), hy=(y+0.5-(cy-ry*0.40));      // upper-left highlight blob
+    if((hx*hx)/((rx*0.46)*(rx*0.46))+(hy*hy)/((ry*0.40)*(ry*0.40))<=1) tone=6;
+    if(r2>0.80){ if(dyn>0.12||dxn>0.35) tone=3; if(dyn>0.40) tone=4; }  // rim shadow lower-right
+    g[y][x]=tone;
+  }
+  // ---- feet ----
+  for(const s of [-1,1]){
+    const fx=cx+s*5; pkStamp(g,fx,groundY-2,3,3); pkSet(g,fx,groundY-1,4); pkSet(g,fx-1,groundY-2,5);
+  }
+  // ---- arms ----
+  const arms=p.arms||'rest';
+  for(const s of [-1,1]){
+    if(arms==='up'){ const ax=cx+s*(rx*0.78), ay=cy-ry*0.15; pkSeg(g,ax,ay,ax+s*2,ay-6,3.2,2,3); pkSet(g,ax+s*2,ay-7,5); }
+    else if(arms==='forward'){ const ax=cx+s*(rx*0.82), ay=cy+ry*0.18; pkSeg(g,ax,ay,ax+s*3,ay+3,3.2,2,3); pkSet(g,ax+s*3,ay+3,3); }
+    else { const ax=cx+s*(rx*0.82), ay=cy+ry*0.14; pkStamp(g,ax,ay,3,2); pkStamp(g,ax,ay+3,2,3); }
+  }
+  // ---- ears (long, black tips) ----
+  const eMap={up:[-0.18,-1],perky:[-0.30,-1],back:[-0.55,-0.84],down:[-0.82,-0.5]};
+  const ed=eMap[p.ear||'up'];
+  for(const s of [-1,1]){
+    const dirx=ed[0]*(-s), diry=ed[1], dl=Math.hypot(dirx,diry);
+    const ux=dirx/dl, uy=diry/dl, px0=-uy, py0=ux;   // perpendicular
+    const bx=cx+s*5, by0=headTopY+4, len=18;
+    for(let t=0;t<=len;t+=0.5){
+      const w=(5.0 - 3.4*(t/len)); const fr=t/len;
+      const ccx=bx+ux*t, ccy=by0+uy*t;
+      for(let o=-w/2;o<=w/2;o+=0.5){
+        const xx=ccx+px0*o, yy=ccy+py0*o;
+        if(fr>0.62){ pkSet(g,xx,yy,10); }
+        else { pkSet(g,xx,yy, Math.abs(o)<w*0.28?5:(o*s<0?2:3)); }
+      }
+    }
+    // black tip highlight + ear inner base shading
+    const tipx=bx+ux*len, tipy=by0+uy*len; pkSet(g,tipx-ux,tipy-uy,11);
+  }
+  // ---- cheeks (red) ----
+  const cheek=p.cheek||0;
+  for(const s of [-1,1]){
+    const chx=cx+s*9, chy=faceY+4.5;
+    pkStamp(g,chx,chy,3.4,7); pkSet(g,chx-1,chy-1,9); pkSet(g,chx,chy+2,8);
+    if(cheek>=1){ pkStamp(g,chx,chy,4.2,9); pkStamp(g,chx,chy,3.0,7); pkSet(g,chx-1,chy-1,12); }
+  }
+  // ---- eyes (symmetric, big, with shine) ----
+  const eye=p.eye||'open';
+  for(const s of [-1,1]){
+    const ex=cx+s*6, ey=faceY-0.5;
+    if(eye==='open'||eye==='half'){
+      for(let dy=-2;dy<=2;dy++) for(let dx=-1.5;dx<=1.5;dx+=0.5){
+        if((dx*dx)/2.6+(dy*dy)/5<=1){ if(eye==='half'&&dy<0) continue; pkSet(g,ex+dx,ey+dy,10); }
+      }
+      pkSet(g,ex-1,ey-1,12); pkSet(g,ex-1,ey-1.5,12);   // bright shine
+      pkSet(g,ex+1,ey+1,11);                             // soft lower reflection
+    } else if(eye==='closed'){
+      for(let dx=-2;dx<=2;dx++) pkSet(g,ex+dx,ey+1,10); pkSet(g,ex-2,ey,10); pkSet(g,ex+2,ey,10);
+    } else if(eye==='happy'){
+      pkSet(g,ex-2,ey+1,10); pkSet(g,ex-1,ey,10); pkSet(g,ex,ey-1,10); pkSet(g,ex+1,ey,10); pkSet(g,ex+2,ey+1,10);
+    } else if(eye==='squint'){
+      for(let dx=-1.5;dx<=1.5;dx++){ pkSet(g,ex+dx,ey,10); pkSet(g,ex+dx,ey+1,10); }
+    }
+  }
+  // ---- nose + mouth ----
+  pkSet(g,23,faceY+2,15); pkSet(g,24,faceY+2,15);
+  const mouth=p.mouth||'smile', my=faceY+4;
+  if(mouth==='smile'){ pkSet(g,22,my,1); pkSet(g,23,my+1,1); pkSet(g,24,my+1,1); pkSet(g,25,my,1); }
+  else if(mouth==='small'){ pkSet(g,23,my,1); pkSet(g,24,my,1); }
+  else if(mouth==='open'){ for(let dy=0;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) if(dx*dx/4+(dy-1)*(dy-1)/2<=1.1) pkSet(g,24+dx-0.5,my+dy,15);
+    pkSet(g,23,my+2,16); pkSet(g,24,my+2,16); }
+  pkOutline(g);
+  return g;
+}
+function pkToCanvas(g){
+  const oc=document.createElement('canvas'); oc.width=PK; oc.height=PK; const o=oc.getContext('2d');
+  for(let y=0;y<PK;y++) for(let x=0;x<PK;x++){ const v=g[y][x]; if(!v) continue; o.fillStyle=PPAL[v]; o.fillRect(x,y,1,1); }
+  return oc;
+}
+/* pose library -> cached frame canvases */
+const PIKA_POSES = {
+  I0:{by:0,ear:'up',eye:'open',mouth:'smile',tailUp:0},
+  I1:{by:-1,sy:1.02,ear:'up',eye:'open',mouth:'smile',tailUp:1,tailSwing:1},
+  I2:{by:-2,sy:1.04,sx:0.99,ear:'perky',eye:'open',mouth:'smile',tailUp:2,tailSwing:1},
+  I3:{by:-1,sy:1.02,ear:'up',eye:'open',mouth:'smile',tailUp:1,tailSwing:-1},
+  BLINK:{by:0,ear:'up',eye:'closed',mouth:'smile',tailUp:0},
+  EARWIG:{by:0,ear:'down',eye:'open',mouth:'smile',tailUp:1,tailSwing:-1},
+  SPARK:{by:-1,ear:'perky',eye:'open',mouth:'smile',cheek:1,tailUp:2},
+  B0:{by:1,sx:1.03,sy:0.98,ear:'perky',eye:'open',mouth:'small',tailUp:1},
+  B1:{by:0,ear:'perky',eye:'open',mouth:'small',tailUp:1,tailSwing:1},
+  B2:{by:1,sx:1.02,sy:0.99,ear:'perky',eye:'open',mouth:'small',cheek:1,tailUp:2,tailSwing:1},
+  E0:{by:5,sx:1.22,sy:0.66,ear:'back',eye:'half',mouth:'small',tailUp:0},
+  E1:{by:-4,sx:0.82,sy:1.24,ear:'perky',eye:'open',mouth:'open',cheek:1,tailUp:2},
+  W0:{by:2,sx:1.05,sy:0.95,ear:'back',eye:'squint',mouth:'small',cheek:1,tailUp:1},
+  W1:{by:3,sx:1.10,sy:0.90,ear:'back',eye:'squint',mouth:'small',cheek:2,tailUp:1},
+  S0:{by:-1,sx:0.95,sy:1.08,ear:'back',eye:'open',mouth:'open',cheek:2,arms:'forward',tailUp:2},
+  S1:{by:-2,sx:0.92,sy:1.12,ear:'back',eye:'open',mouth:'open',cheek:2,arms:'forward',tailUp:2,tailSwing:1},
+  R0:{by:1,sx:1.02,ear:'up',eye:'half',mouth:'small',tailUp:1},
+  H0:{by:1,sx:1.09,sy:0.93,ear:'down',eye:'closed',mouth:'open',tailUp:0},
+  H1:{by:0,sx:1.04,ear:'down',eye:'squint',mouth:'small',tailUp:0},
+  V0:{by:2,sx:1.05,sy:0.95,ear:'perky',eye:'happy',mouth:'open',tailUp:1},
+  V1:{by:-5,sx:0.92,sy:1.10,ear:'perky',eye:'happy',mouth:'open',cheek:1,arms:'up',tailUp:2},
+  V2:{by:-2,sx:0.97,sy:1.04,ear:'perky',eye:'happy',mouth:'open',cheek:1,arms:'up',tailUp:2,tailSwing:1}
+};
+const PIKA_FRAMES = {};
+for(const k in PIKA_POSES) PIKA_FRAMES[k]=pkToCanvas(pikaFrameGrid(PIKA_POSES[k]));
+PIKACHU.canvas = PIKA_FRAMES.I0;        // upgrade portrait/dex/title/HUD too
+
+/* ---- Pikachu animation runtime ---- */
+const pika = { t:0, battleT:0, hitT:0, prevYouHearts:5, lastBattle:null, zapped:false, cheered:false };
+function isPika(c){ return c && c.id===PIKACHU.id; }
+function pikaUpdate(dt){
+  pika.t+=dt;
+  const b=G.battle;
+  if((G.state==='battle'||G.state==='catch') && b){
+    if(b!==pika.lastBattle){ pika.lastBattle=b; pika.battleT=0; pika.prevYouHearts=b.youHearts; pika.zapped=false; pika.cheered=false; }
+    pika.battleT+=dt;
+    if(isPika(b.you)){
+      if(b.youHearts<pika.prevYouHearts) pika.hitT=0.42;
+      if(b.phase==='youAttack'){ if(b.anim>=0.22 && !pika.zapped){ SFX.thunderZap(); pika.zapped=true; } if(b.anim<0.22) pika.zapped=false; }
+      else pika.zapped=false;
+      if(b.canCatch && !pika.cheered){ pika.cheered=true; SFX.cheer(); }
+    }
+    pika.prevYouHearts=b.youHearts;
+  } else { pika.lastBattle=null; }
+  if(pika.hitT>0) pika.hitT-=dt;
+}
+function pikaIdleKey(){
+  const t=pika.t;
+  if((t%3.3)<0.13) return 'BLINK';
+  if((t%5.2)<0.20) return 'EARWIG';
+  if((t%4.4)<0.20) return 'SPARK';
+  const c=t%1.8; return c<0.5?'I0':c<0.9?'I1':c<1.4?'I2':'I3';
+}
+function pikaBattleKey(b){
+  if(pika.battleT<0.55){ const t=pika.battleT; return t<0.12?'E0':t<0.26?'E1':t<0.36?'E0':'E2'; }
+  if(pika.hitT>0){ return pika.hitT>0.28?'H0':pika.hitT>0.14?'H1':'H0'; }
+  if(b.canCatch){ const w=pika.t%1.1; return w<0.18?'V0':w<0.62?'V1':'V2'; }
+  if(b.phase==='youAttack'){ const a=b.anim;
+    return a<0.12?'W0':a<0.22?'W1':a<0.33?'S0':a<0.42?'S1':'R0'; }
+  if(b.phase==='revive') return 'H1';
+  const c=pika.t%1.9; return c<0.5?'B0':c<0.95?'B1':c<1.45?'B2':'B1';
+}
+function pikaCanvas(key){ return PIKA_FRAMES[key]||PIKA_FRAMES.I0; }
+function pkScreenSparks(cx,cy,n,rad,col){
+  ctx.fillStyle=col||'#fff14d';
+  for(let i=0;i<n;i++){ const a=Math.random()*7, r=Math.random()*rad;
+    const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
+    ctx.fillRect(x-1,y,3,1); ctx.fillRect(x,y-1,1,3); }
+}
+function drawPikaFollower(camx,camy){
+  const f=G.follower;
+  const key=pikaIdleKey();
+  const bob=Math.sin(f.bob)*2;
+  const sx=Math.round(f.x-camx), sy=Math.round(f.y-camy);
+  const size=44, dx=sx+16-size/2, dy=sy+32-size+bob;   // centered, feet at cell bottom
+  ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(sx+16,sy+30,12,4,0,0,7); ctx.fill();
+  ctx.drawImage(pikaCanvas(key), dx, dy, size, size);
+  if(key==='SPARK'){ const sc=size/PK; pkScreenSparks(dx+9*sc,dy+24*sc,3,5); pkScreenSparks(dx+39*sc,dy+24*sc,3,5); }
+}
+function drawPikaBattle(b){
+  const key=pikaBattleKey(b);
+  const size=104, baseX=83, baseY=150;
+  let lean=0;
+  if(b.phase==='youAttack'){ const a=b.anim;
+    if(a<0.22) lean=-10*(a/0.22);
+    else if(a<0.42) lean=30*Math.sin(((a-0.22)/0.2)*Math.PI);
+    else lean=4*(1-(a-0.42)/0.08); }
+  if(pika.hitT>0) lean=-16*(pika.hitT/0.42);
+  let shx=0,shy=0; if(b.shake>0 && b.attacker==='wild'){ shx=(Math.random()*2-1)*b.shake*0.7; shy=(Math.random()*2-1)*b.shake*0.7; }
+  const bob=Math.sin(pika.t*4)*2;
+  const x=baseX+lean+shx, y=baseY+bob+shy;
+  ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(baseX+size/2+lean*0.5, baseY+size-12, 40,12,0,0,7); ctx.fill();
+  ctx.drawImage(pikaCanvas(key), x, y, size, size);
+  if(b.attacker==='wild'&&b.flash>0){ ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=Math.min(0.6,b.flash/10);
+    ctx.drawImage(pikaCanvas(key), x, y, size, size); ctx.restore(); }
+  // cheek charge sparks
+  const sc=size/PK, lcx=x+15*sc, rcx=x+33*sc, chy=y+25*sc;
+  pika.cl=lcx; pika.cr=rcx; pika.cy=chy;
+  if(key==='W1'||key==='S0'||key==='S1'){ pkScreenSparks(lcx,chy,4,7); pkScreenSparks(rcx,chy,4,7); }
+  if(key==='V1'||key==='B2'){ pkScreenSparks(lcx,chy,2,5); pkScreenSparks(rcx,chy,2,5); }
+}
+function pkLightning(x1,y1,x2,y2){
+  for(let bolt=0;bolt<2;bolt++){
+    const segs=8; ctx.beginPath(); ctx.moveTo(x1,y1);
+    for(let i=1;i<=segs;i++){ const t=i/segs; let nx=lerp(x1,x2,t), ny=lerp(y1,y2,t);
+      if(i<segs){ const perpx=-(y2-y1),perpy=(x2-x1),pl=Math.hypot(perpx,perpy)||1, off=(Math.random()*2-1)*16;
+        nx+=perpx/pl*off; ny+=perpy/pl*off; }
+      ctx.lineTo(nx,ny); }
+    ctx.strokeStyle='rgba(255,236,140,0.9)'; ctx.lineWidth=7; ctx.stroke();
+    ctx.strokeStyle='#ffffff'; ctx.lineWidth=2.5; ctx.stroke();
+  }
+}
+function drawPikaElectric(b){
+  const a=b.anim;
+  const lcx=pika.cl||120, rcx=pika.cr||155, chy=pika.cy||205;
+  const tx=345, ty=92;                  // wild creature centre
+  if(a<0.22){
+    const it=a/0.22; pkScreenSparks(lcx,chy,3+((it*5)|0),6+it*6); pkScreenSparks(rcx,chy,3+((it*5)|0),6+it*6);
+    if(Math.random()<0.6){ pkLightning(lcx,chy,rcx,chy); }   // arc between cheeks while charging
+  } else {
+    const p=(a-0.22)/0.28;
+    ctx.save(); ctx.fillStyle='rgba(255,250,210,'+(0.30*(1-p))+')'; ctx.fillRect(0,0,VW,VH); ctx.restore();
+    pkLightning(rcx+4, chy-8, tx, ty);
+    pkScreenSparks(tx,ty,9, 28*p);
+    pkScreenSparks((rcx+tx)/2,(chy+ty)/2,5,18);
+  }
 }
 
 /* ============================================================
@@ -987,6 +1264,7 @@ function tapDex(vx,vy){
 let last=performance.now();
 function update(dt){
   G.t+=dt;
+  pikaUpdate(dt);
   if(G.state==='world') updateWorld(dt);
   else if(G.state==='travel') updateTravel(dt);
   else if(G.state==='battle') updateBattle(dt);
@@ -1118,6 +1396,7 @@ function drawPlayer(camx,camy){
 }
 function drawFollower(camx,camy){
   const c=activeCreature(); if(!c) return;
+  if(isPika(c)){ drawPikaFollower(camx,camy); return; }
   const f=G.follower;
   const bob=Math.sin(f.bob)*2;
   const sx=Math.round(f.x-camx), sy=Math.round(f.y-camy-2+bob);
@@ -1200,8 +1479,9 @@ function drawBattle(){
   const yflash = (b.attacker==='wild'&&b.flash>0);
   const wildX=320+(b.attacker==='wild'&&b.anim<0.25? -16:0);
   drawBattleSprite(b.wild.canvas, wildX+(wflash?shx:0), 48+(wflash?shy:0), 2.6, wflash);
-  const youX=92+(b.attacker==='you'&&b.anim<0.25? 16:0);
-  drawBattleSprite(b.you.canvas, youX+(yflash?shx:0), 150+(yflash?shy:0), 3.1, yflash);
+  if(isPika(b.you)){ drawPikaBattle(b); }
+  else { const youX=92+(b.attacker==='you'&&b.anim<0.25? 16:0);
+    drawBattleSprite(b.you.canvas, youX+(yflash?shx:0), 150+(yflash?shy:0), 3.1, yflash); }
   drawHearts(300,30, b.wildHearts, b.wildMax);
   drawHearts(60,132, b.youHearts, 5);
   drawAttackAnim(b);
@@ -1275,6 +1555,7 @@ function drawBall(cx,cy,r){
 }
 function drawAttackAnim(b){
   if(b.phase!=='youAttack' && b.phase!=='wildAttack') return;
+  if(b.phase==='youAttack' && isPika(b.you)){ drawPikaElectric(b); return; }
   const fromYou = b.phase==='youAttack';
   const sx=fromYou? 150:360, sy=fromYou? 175:90;
   const tx=fromYou? 360:140, ty=fromYou? 95:190;
